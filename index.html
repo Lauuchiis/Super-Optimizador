@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090a10" />
+    <title>Super Optimizador</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="window-drag-region" aria-hidden="true"></div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">SO</div>
+          <div>
+            <strong>Super Optimizador</strong>
+            <span>Dale a tu PC la velocidad que se merece</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Navegación principal">
+          <button class="nav-item active" data-page="optimize"><span>⚡</span>Optimizar</button>
+          <button class="nav-item" data-page="ai"><span>✦</span>Escaneo IA</button>
+          <button class="nav-item" data-page="drivers"><span>◈</span>Drivers</button>
+          <button class="nav-item" data-page="health"><span>♧</span>Salud del equipo</button>
+          <button class="nav-item" data-page="startup"><span>↗</span>Inicio</button>
+          <button class="nav-item" data-page="boost"><span>◉</span>Limpiador de RAM</button>
+          <button class="nav-item" data-page="ping"><span>⌁</span>Monitor de ping</button>
+          <button class="nav-item" data-page="log"><span>▤</span>Log</button>
+          <button class="nav-item" data-page="settings"><span>⚙</span>Ajustes</button>
+          <button class="nav-item" data-page="revert"><span>↩</span>Revertir</button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <button class="overlay-button" data-action="toggle-overlay" aria-pressed="false"><span data-overlay-icon>□</span><span data-overlay-label>Overlay de FPS</span></button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">PANEL DE CONTROL</p>
+            <h1 id="page-title">Optimizar</h1>
+          </div>
+          <div class="top-actions">
+            <span class="machine-pill"><i class="windows-mark" aria-hidden="true"><b></b><b></b><b></b><b></b></i><span id="windows-version">Windows · leyendo versión…</span></span>
+          </div>
+        </header>
+
+        <section id="page" class="page" aria-live="polite"></section>
+      </main>
+    </div>
+    <section id="performance-overlay" class="performance-overlay hidden" aria-label="Overlay de rendimiento">
+      <div class="overlay-heading"><span><i></i> SUPER OPTIMIZADOR</span><button data-action="toggle-overlay" aria-label="Cerrar overlay">×</button></div>
+      <div class="overlay-metrics">
+        <div><strong id="overlay-fps">144</strong><span>FPS</span></div>
+        <div><strong id="overlay-gpu">38%</strong><span>GPU</span></div>
+        <div><strong id="overlay-ram">8.8 GB</strong><span>RAM libre</span></div>
+      </div>
+    </section>
+    <button id="scroll-down-button" class="scroll-down-button" type="button" aria-label="Bajar en la página">↓ Bajar</button>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overlay de rendimiento</title>
+    <link rel="stylesheet" href="./overlay.css">
+  </head>
+  <body>
+    <section class="overlay" aria-label="Overlay de rendimiento">
+      <div class="heading"><span><i></i> SUPER OPTIMIZADOR</span><button id="close-overlay" aria-label="Cerrar overlay">×</button></div>
+      <div class="metrics">
+        <div class="metric-row"><span>FPS</span><strong id="fps">—</strong></div>
+        <div class="metric-row"><span>CPU</span><strong id="cpu">—</strong></div>
+        <div class="metric-row"><span>GPU</span><strong id="gpu">—</strong></div>
+        <div class="metric-row"><span>RAM libre</span><strong id="ram">—</strong></div>
+      </div>
+    </section>
+    <script>
+      window.superOptimizer.onMetrics(metrics => {
+        document.querySelector('#fps').textContent = metrics.fps;
+        document.querySelector('#cpu').textContent = metrics.cpu;
+        document.querySelector('#gpu').textContent = metrics.gpu;
+        document.querySelector('#ram').textContent = metrics.ram;
+      });
+      document.querySelector('#close-overlay').addEventListener('click', () => window.superOptimizer.closeOverlay());
+    </script>
+  </body>
+</html>

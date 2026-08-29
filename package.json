@@ -1,0 +1,38 @@
+{
+  "name": "super-optimizador",
+  "version": "0.1.0",
+  "description": "Super Optimizador para Windows",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:portable": "electron-builder --win portable",
+    "dist:installer": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "systeminformation": "^5.27.11"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.superoptimizador.windows",
+    "productName": "Super Optimizador",
+    "asar": true,
+    "asarUnpack": ["tools/**/*"],
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "assets/**/*",
+      "electron/**/*",
+      "tools/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["portable"],
+      "artifactName": "Super-Optimizador-Portable-${version}.${ext}"
+    }
+  }
+}

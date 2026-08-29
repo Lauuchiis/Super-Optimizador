@@ -1,0 +1,3 @@
+LibreHardwareMonitor is included as the universal hardware sensor provider.
+Copyright (c) LibreHardwareMonitor contributors. Licensed under the Mozilla Public License 2.0.
+Source: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
