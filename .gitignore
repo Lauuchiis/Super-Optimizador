@@ -3,3 +3,4 @@ dist/win-unpacked/
 dist/builder-debug.yml
 dist/builder-effective-config.yaml
 *.log
+tools/hardware-sensors/*.new.exe

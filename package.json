@@ -28,6 +28,7 @@
       "assets/**/*",
       "electron/**/*",
       "tools/**/*",
+      "!tools/hardware-sensors/*.new.exe",
       "package.json"
     ],
     "win": {
