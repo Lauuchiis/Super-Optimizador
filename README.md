@@ -1,21 +1,5 @@
 # Super Optimizador
 
-Aplicación portable de Super Optimizador, inspirada en la interfaz de la captura de
-referencia. Incluye los menús principales, lecturas locales y un catálogo de ajustes.
-
-Toda la interfaz está planteada como gratuita: no hay etiquetas Pro ni Beta.
-La paleta usa azul cian, azul intenso, navy oscuro y amarillo como acento,
-basada en la referencia Persona 3 enlazada.
-
-Los sonidos locales están en `assets/`: `hover.wav` para pasar por los menús,
-`section.wav` para cambiar de sección, `toggle.wav` para activar o desactivar
-selectores y `click.wav` para botones de acción.
-
-El overlay de rendimiento comienza desactivado y se controla desde el botón
-`Overlay de FPS` de la esquina inferior izquierda; al activarlo muestra FPS, GPU, RAM libre y
-temperatura, y usa `toggle.wav`. El botón de cierre del propio overlay también
-lo desactiva.
-
 ## Versión portable de Windows
 
 El proyecto incluye una envoltura Electron en `electron/`. Para generar el
@@ -90,3 +74,9 @@ La configuración de entorno está separada en `electron/config.js`. En desarrol
 usa `SUPER_OPTIMIZADOR_DEV_API_URL` o `http://127.0.0.1:3000`; en producción usa
 `SUPER_OPTIMIZADOR_API_URL` y no tiene una URL remota predeterminada. Las
 lecturas y acciones actuales siguen siendo locales y no dependen de una API.
+
+## Estado del plan
+
+El punto de restauración, los backups por tweak, la elevación bajo demanda, la
+confirmación individual, el registro detallado, la reversión por ajuste y la
+configuración separada de entornos ya están implementados.
