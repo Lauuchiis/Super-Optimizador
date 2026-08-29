@@ -48,10 +48,19 @@ El panel `Optimizar` también actualiza CPU y memoria usada con lecturas del
 equipo cuando se ejecuta como portable; si un sensor térmico no está expuesto,
 la temperatura se muestra como no disponible.
 
-Las preferencias, los ajustes seleccionados y el registro de actividad se
-guardan localmente en el perfil de la aplicación. La página principal muestra
-el catálogo completo por categorías y permite seleccionar tweak por tweak para
-aplicarlos juntos con confirmación de Windows.
+Las preferencias y los ajustes seleccionados se guardan localmente en el perfil
+de la aplicación. La página principal muestra el catálogo completo por
+categorías y permite seleccionar tweak por tweak. Cada tweak pide confirmación
+individual; los cambios que necesitan elevación muestran UAC únicamente al
+ejecutarse.
+
+Antes de una aplicación se guarda un backup por ajuste en
+`Documentos\Super Optimizador\Backups\optimizacion-...`. Si está activa la
+preferencia correspondiente, también se intenta crear un punto de restauración
+de Windows. Los ajustes reversibles aparecen en `Revertir` y pueden restaurarse
+individualmente. Los ajustes irreversibles quedan marcados sin falsa opción de
+reversión. Cada ejecución y reversión genera un TXT en
+`Documentos\Super Optimizador\Logs`.
 
 `Health Check` consulta memoria, almacenamiento, tiempo encendido y versión de
 Windows en solo lectura. `Startup` consulta las entradas `Run` del usuario y del
@@ -75,13 +84,9 @@ pendiente. El panel principal solicita una lectura al entrar o volver a
 Abre `index.html` directamente en el navegador. También se puede servir desde
 cualquier servidor local estático.
 
-## Próxima fase
+## Configuración de desarrollo y producción
 
-La arquitectura visual está separada de las acciones. Para aplicar optimizaciones
-reales de Windows se deberán añadir módulos con:
-
-- punto de restauración y backups antes de cambios;
-- permisos elevados solicitados solo cuando sean necesarios;
-- confirmación individual y permisos elevados solo cuando sean necesarios;
-- registro detallado y reversión por ajuste;
-- configuración de API de desarrollo separada de producción.
+La configuración de entorno está separada en `electron/config.js`. En desarrollo
+usa `SUPER_OPTIMIZADOR_DEV_API_URL` o `http://127.0.0.1:3000`; en producción usa
+`SUPER_OPTIMIZADOR_API_URL` y no tiene una URL remota predeterminada. Las
+lecturas y acciones actuales siguen siendo locales y no dependen de una API.

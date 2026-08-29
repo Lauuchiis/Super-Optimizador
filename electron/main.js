@@ -5,6 +5,7 @@ const { execFile } = require('node:child_process');
 const { spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const fs = require('node:fs');
+const runtimeConfig = require('./config');
 
 const execFileAsync = promisify(execFile);
 
@@ -614,6 +615,62 @@ const optimizationOperations = {
   startExperiences: { label: 'Eliminar recomendaciones del menú Inicio', command: "Set-RegDword 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager' 'SystemPaneSuggestionsEnabled' 0; Set-RegDword 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager' 'SubscribedContent-338388Enabled' 0" }
 };
 
+const adminOptimizationKeys = new Set([
+  'powerPlan', 'networkThrottle', 'disableMpo', 'hags', 'powerThrottling', 'usbSuspend',
+  'sysMain', 'searchIndex', 'telemetry', 'diagnostics', 'printSpooler', 'disableWer',
+  'tempClean', 'prefetch', 'winsockReset', 'ipReset', 'deliveryOptimization', 'disableHibernate',
+  'systemResponsiveness', 'coreParking', 'dynamicTick', 'gpuMsi', 'pciAspm', 'hpet',
+  'timerResolution', 'gamePriority', 'activityHistory', 'diagnosticData', 'widgets',
+  'oneDriveRemove', 'removeMcafee', 'cortana', 'bingApps', 'teamsConsumer', 'mixedReality',
+  'viewer3d', 'solitaire', 'skypeOffice', 'clipchamp', 'familySafety', 'feedbackHub',
+  'mailCalendar', 'maps', 'moviesTV', 'paint3d', 'people', 'powerAutomate', 'tips', 'toDo',
+  'weather', 'yourPhone', 'xboxApp', 'devHome', 'getHelp', 'quickAssist', 'crossDevice',
+  'stickyNotes', 'soundRecorder', 'alarmsClock', 'paintApp', 'notepadApp', 'snipSketch',
+  'calculatorApp', 'photosApp', 'bingSearch', 'zuneMusic', 'startExperiences'
+]);
+
+const irreversibleOptimizationKeys = new Set([
+  'tempClean', 'prefetch', 'flushDns', 'winsockReset', 'ipReset', 'gamePriority', 'startupCleanup',
+  'oneDriveRemove', 'removeMcafee', 'cortana', 'bingApps', 'teamsConsumer', 'mixedReality',
+  'viewer3d', 'solitaire', 'skypeOffice', 'clipchamp', 'familySafety', 'feedbackHub',
+  'mailCalendar', 'maps', 'moviesTV', 'paint3d', 'people', 'powerAutomate', 'tips', 'toDo',
+  'weather', 'yourPhone', 'xboxApp', 'devHome', 'getHelp', 'quickAssist', 'crossDevice',
+  'stickyNotes', 'soundRecorder', 'alarmsClock', 'paintApp', 'notepadApp', 'snipSketch',
+  'calculatorApp', 'photosApp', 'bingSearch', 'zuneMusic'
+]);
+
+const manualBackupCode = {
+  powerPlan: 'Save-PowerPlan',
+  usbSuspend: "Save-PowerSetting 'SUB_USB' 'USBSELECTIVE' 'SUSPEND'",
+  coreParking: "Save-PowerSetting 'SUB_PROCESSOR' 'CPMINCORES' ''",
+  pciAspm: "Save-PowerSetting 'SUB_PCIEXPRESS' 'ASPM' ''",
+  disableHibernate: 'Save-HibernateState',
+  dynamicTick: "Save-BcdValue 'disabledynamictick'",
+  hpet: "Save-BcdValue 'useplatformclock'",
+  gpuMsi: "Get-PnpDevice -Class Display -Status OK -ErrorAction SilentlyContinue | ForEach-Object { $path = \"HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\$($_.InstanceId)\\Device Parameters\\Interrupt Management\\MessageSignaledInterruptProperties\"; Save-RegValue $path 'MSISupported' }"
+};
+
+function powershellLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function inferBackupCode(operation) {
+  const fragments = [];
+  const registryValues = [...String(operation.command).matchAll(/['"]((?:HKCU|HKLM):\\[^'"]+)['"]\s+['"]([^'"]+)['"]/g)];
+  for (const [, registryPath, valueName] of registryValues) fragments.push(`Save-RegValue ${powershellLiteral(registryPath)} ${powershellLiteral(valueName)}`);
+  const services = [...String(operation.command).matchAll(/Set-ServiceSafe\s+'([^']+)'/g)];
+  for (const [, serviceName] of services) fragments.push(`Save-ServiceState ${powershellLiteral(serviceName)}`);
+  const appx = [...String(operation.command).matchAll(/Remove-AppxSafe\s+'([^']+)'/g)];
+  for (const [, pattern] of appx) fragments.push(`Save-AppxPackages ${powershellLiteral(pattern)}`);
+  return fragments.join('\n');
+}
+
+for (const [key, operation] of Object.entries(optimizationOperations)) {
+  operation.requiresAdmin = adminOptimizationKeys.has(key);
+  operation.backupCode = manualBackupCode[key] || inferBackupCode(operation);
+  operation.reversible = !irreversibleOptimizationKeys.has(key) && Boolean(operation.backupCode);
+}
+
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
@@ -624,20 +681,36 @@ function optimizationLogDirectory() {
   return directory;
 }
 
-function buildOptimizationScript(keys, logPath) {
+function optimizationBackupDirectory() {
+  const directory = path.join(app.getPath('documents'), 'Super Optimizador', 'Backups');
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function buildOptimizationScript(keys, { logPath, backupDirectory, resultsPath, createRestorePoint = false, mode = 'usuario' }) {
   const operations = keys.map(key => ({ key, operation: optimizationOperations[key] })).filter(item => item.operation);
   const steps = operations.map(({ key, operation }) => `Write-Log ${psQuote(`INICIO: ${operation.label} (${key})`)}
+$operationBackup = [ordered]@{ key = ${psQuote(key)}; label = ${psQuote(operation.label)}; registry = @(); services = @(); powerPlan = $null; powerSettings = @(); hibernate = $null; bcd = @(); appx = @() }
 try {
+  ${operation.backupCode || '$null = $null'}
+  $backupFile = Join-Path ${psQuote(backupDirectory)} ${psQuote(`${key}.json`)}
+  $operationBackup | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $backupFile -Encoding UTF8
+  Write-Log ${psQuote(`BACKUP: ${operation.reversible ? 'disponible para reversión' : 'realizado; este ajuste no admite reversión automática'}`)}
   ${operation.command}
+  $results += [pscustomobject]@{ key = ${psQuote(key)}; status = 'ok'; error = '' }
   Write-Log ${psQuote(`OK: ${operation.label}`)}
 } catch {
   $failed = $true
-  Write-Log (${psQuote(`ERROR: ${operation.label}`)} + ' - ' + $_.Exception.Message)
+  $errorText = $_.Exception.Message
+  $results += [pscustomobject]@{ key = ${psQuote(key)}; status = 'error'; error = $errorText }
+  Write-Log (${psQuote(`ERROR: ${operation.label}`)} + ' - ' + $errorText)
 }`).join('\n');
-  return `# Super Optimizador - cambios solicitados por el usuario
+  return `# Super Optimizador - ejecución ${mode}
 $ErrorActionPreference = 'Stop'
 $failed = $false
+$results = @()
 $logPath = ${psQuote(logPath)}
+$resultsPath = ${psQuote(resultsPath)}
 function Write-Log([string]$Message) {
   $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
   Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
@@ -663,15 +736,72 @@ function Remove-AppxSafe([string]$Pattern) {
   if (!$packages.Count) { Write-Log "Paquete no encontrado: $Pattern"; return }
   foreach ($package in $packages) { Remove-AppxPackage -Package $package.PackageFullName -AllUsers -ErrorAction SilentlyContinue }
 }
+function Save-RegValue([string]$Path,[string]$Name) {
+  $entry = [ordered]@{ path = $Path; name = $Name; exists = $false; type = 'String'; value = $null }
+  if (Test-Path $Path) {
+    $properties = Get-ItemProperty -LiteralPath $Path -ErrorAction SilentlyContinue
+    $property = $properties.PSObject.Properties | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+    if ($property) {
+      $entry.exists = $true
+      $entry.value = $property.Value
+      try { $entry.type = (Get-Item -LiteralPath $Path).GetValueKind($Name).ToString() } catch {}
+    }
+  }
+  $operationBackup.registry += [pscustomobject]$entry
+}
+function Save-ServiceState([string]$Name) {
+  $service = Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction SilentlyContinue
+  if ($service) { $operationBackup.services += [pscustomobject]@{ name = $Name; exists = $true; startMode = $service.StartMode; state = $service.State } }
+  else { $operationBackup.services += [pscustomobject]@{ name = $Name; exists = $false; startMode = ''; state = '' } }
+}
+function Save-PowerPlan {
+  $line = powercfg.exe /getactivescheme 2>$null | Select-Object -First 1
+  $match = [regex]::Match([string]$line, '[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}')
+  if ($match.Success) { $operationBackup.powerPlan = $match.Value }
+}
+function Save-PowerSetting([string]$Subgroup,[string]$Setting,[string]$ValueName) {
+  $lines = @(powercfg.exe /query SCHEME_CURRENT $Subgroup $Setting 2>$null)
+  $match = $lines | Select-String -Pattern 'Current AC Power Setting Index:\\s+0x([0-9a-fA-F]+)' | Select-Object -First 1
+  if ($match) { $operationBackup.powerSettings += [pscustomobject]@{ subgroup = $Subgroup; setting = $Setting; value = $match.Matches[0].Groups[1].Value } }
+}
+function Save-HibernateState {
+  $operationBackup.hibernate = Test-Path (Join-Path $env:SystemDrive 'hiberfil.sys')
+}
+function Save-BcdValue([string]$Name) {
+  $output = bcdedit.exe /enum '{current}' 2>$null | Out-String
+  $match = [regex]::Match($output, "(?im)^\\s*$Name\\s+(\\S+)")
+  $operationBackup.bcd += [pscustomobject]@{ name = $Name; exists = $match.Success; value = if ($match.Success) { $match.Groups[1].Value } else { '' } }
+}
+function Save-AppxPackages([string]$Pattern) {
+  $packages = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { $_.Name -like $Pattern -or $_.PackageFullName -like $Pattern } | Select-Object Name, PackageFullName, InstallLocation)
+  $operationBackup.appx += [pscustomobject]@{ pattern = $Pattern; packages = $packages }
+}
+New-Item -ItemType Directory -Path ${psQuote(backupDirectory)} -Force | Out-Null
 New-Item -ItemType File -Path $logPath -Force | Out-Null
-Write-Log 'Inicio de aplicación elevada'
+Write-Log ${psQuote(`Inicio de aplicación (${mode})`)}
+if (${createRestorePoint ? '$true' : '$false'}) {
+  try {
+    Checkpoint-Computer -Description 'Super Optimizador - antes de cambios' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+    Write-Log 'Punto de restauración creado correctamente'
+  } catch {
+    Write-Log ('AVISO: no se pudo crear el punto de restauración - ' + $_.Exception.Message)
+  }
+}
 ${steps}
+$results | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $resultsPath -Encoding UTF8
 Write-Log $(if ($failed) { 'Finalizado con errores' } else { 'Finalizado correctamente' })
 exit ([int]$failed)
 `;
 }
 
-async function runElevatedPowerShell(scriptPath) {
+async function runPowerShellScript(scriptPath, requiresAdmin) {
+  if (!requiresAdmin) {
+    return execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      windowsHide: true,
+      timeout: 180000,
+      maxBuffer: 64 * 1024
+    });
+  }
   const command = `$process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',${psQuote(scriptPath)}); exit $process.ExitCode`;
   return execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
     windowsHide: true,
@@ -680,18 +810,196 @@ async function runElevatedPowerShell(scriptPath) {
   });
 }
 
-async function applyOptimizations(keys) {
+function parseResultsFile(resultsPath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+function writeOptimizationManifest(manifestPath, manifest) {
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+}
+
+function readOptimizationSessions() {
+  const root = optimizationBackupDirectory();
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => {
+      const manifestPath = path.join(root, entry.name, 'manifest.json');
+      try { return JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { return null; }
+    })
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .slice(0, 20);
+}
+
+async function applyOptimizations(keys, options = {}) {
   const selectedKeys = [...new Set(Array.isArray(keys) ? keys : [])].filter(key => Object.hasOwn(optimizationOperations, key));
   if (!selectedKeys.length) return { success: false, error: 'No hay ajustes válidos seleccionados.' };
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const sessionId = `optimizacion-${stamp}`;
   const logPath = path.join(optimizationLogDirectory(), `optimizacion-${stamp}.txt`);
-  const scriptPath = path.join(app.getPath('temp'), `super-optimizador-${Date.now()}.ps1`);
-  fs.writeFileSync(scriptPath, `\uFEFF${buildOptimizationScript(selectedKeys, logPath)}`, 'utf8');
+  const sessionDirectory = path.join(optimizationBackupDirectory(), sessionId);
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  const manifestPath = path.join(sessionDirectory, 'manifest.json');
+  const manifest = {
+    sessionId,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+    logPath,
+    restorePointRequested: Boolean(options.createRestorePoint),
+    entries: selectedKeys.map(key => ({
+      key,
+      label: optimizationOperations[key].label,
+      requiresAdmin: Boolean(optimizationOperations[key].requiresAdmin),
+      reversible: Boolean(optimizationOperations[key].reversible),
+      status: 'pending',
+      backupPath: path.join(sessionDirectory, `${key}.json`),
+      revertLogPath: null,
+      revertedAt: null,
+      error: ''
+    }))
+  };
+  writeOptimizationManifest(manifestPath, manifest);
+  const groups = [true, false].map(requiresAdmin => ({
+    requiresAdmin,
+    keys: selectedKeys.filter(key => Boolean(optimizationOperations[key].requiresAdmin) === requiresAdmin)
+  })).filter(group => group.keys.length);
+  const results = [];
+  if (options.createRestorePoint && !groups.some(group => group.requiresAdmin)) {
+    const restoreScriptPath = path.join(app.getPath('temp'), `super-optimizador-restore-${Date.now()}.ps1`);
+    const restoreResultsPath = path.join(sessionDirectory, 'restore-point-results.json');
+    fs.writeFileSync(restoreScriptPath, `\uFEFF${buildOptimizationScript([], {
+      logPath,
+      backupDirectory: sessionDirectory,
+      resultsPath: restoreResultsPath,
+      createRestorePoint: true,
+      mode: 'punto-restauracion'
+    })}`, 'utf8');
+    try {
+      await runPowerShellScript(restoreScriptPath, true);
+    } catch {
+      // Checkpoint-Computer registra el aviso y no impide continuar con tweaks de usuario.
+    } finally {
+      try { fs.rmSync(restoreScriptPath, { force: true }); } catch { /* no bloquear el resultado */ }
+    }
+  }
+  for (const group of groups) {
+    const scriptPath = path.join(app.getPath('temp'), `super-optimizador-${Date.now()}-${group.requiresAdmin ? 'admin' : 'user'}.ps1`);
+    const resultsPath = path.join(sessionDirectory, `${group.requiresAdmin ? 'admin' : 'user'}-results.json`);
+    fs.writeFileSync(scriptPath, `\uFEFF${buildOptimizationScript(group.keys, {
+      logPath,
+      backupDirectory: sessionDirectory,
+      resultsPath,
+      createRestorePoint: group.requiresAdmin && Boolean(options.createRestorePoint),
+      mode: group.requiresAdmin ? 'elevada' : 'usuario'
+    })}`, 'utf8');
+    try {
+      await runPowerShellScript(scriptPath, group.requiresAdmin);
+      results.push(...parseResultsFile(resultsPath));
+    } catch (error) {
+      const partialResults = parseResultsFile(resultsPath);
+      results.push(...partialResults);
+      const completedKeys = new Set(partialResults.map(item => item.key));
+      const cancelled = /canceled|cancelado|denied|拒否/i.test(`${error.message} ${error.stderr}`);
+      results.push(...group.keys.filter(key => !completedKeys.has(key)).map(key => ({ key, status: cancelled ? 'cancelled' : 'error', error: cancelled ? 'UAC cancelada' : error.message })));
+    } finally {
+      try { fs.rmSync(scriptPath, { force: true }); } catch { /* no bloquear el resultado */ }
+    }
+  }
+  for (const entry of manifest.entries) {
+    const result = results.find(item => item.key === entry.key);
+    if (result) { entry.status = result.status; entry.error = result.error || ''; }
+  }
+  manifest.completedAt = new Date().toISOString();
+  writeOptimizationManifest(manifestPath, manifest);
+  const failed = manifest.entries.filter(entry => entry.status !== 'ok');
+  return {
+    success: failed.length === 0,
+    partial: failed.length > 0 && failed.length < manifest.entries.length,
+    logPath,
+    sessionId,
+    keys: selectedKeys,
+    entries: manifest.entries,
+    error: failed.length ? (failed.some(entry => entry.status === 'cancelled') ? 'La confirmación UAC fue cancelada.' : 'Algunos ajustes no pudieron aplicarse. Revisa el registro TXT.') : ''
+  };
+}
+
+function buildRollbackScript(backupPath, logPath, label) {
+  return `# Super Optimizador - reversión de un ajuste
+$ErrorActionPreference = 'Stop'
+$logPath = ${psQuote(logPath)}
+$backupPath = ${psQuote(backupPath)}
+function Write-Log([string]$Message) {
+  Add-Content -LiteralPath $logPath -Value ("$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message") -Encoding UTF8
+}
+function Restore-RegValue($Item) {
+  if ($Item.exists) {
+    New-Item -Path $Item.path -Force | Out-Null
+    $type = if ($Item.type) { [string]$Item.type } else { 'String' }
+    New-ItemProperty -Path $Item.path -Name $Item.name -PropertyType $type -Value $Item.value -Force | Out-Null
+  } elseif (Test-Path $Item.path) {
+    Remove-ItemProperty -Path $Item.path -Name $Item.name -ErrorAction SilentlyContinue
+  }
+}
+function Restore-ServiceState($Item) {
+  if (!$Item.exists) { return }
+  $startupType = if ([string]$Item.startMode -eq 'Auto') { 'Automatic' } else { [string]$Item.startMode }
+  Set-Service -Name $Item.name -StartupType $startupType -ErrorAction Stop
+  if ($Item.state -eq 'Running') { Start-Service -Name $Item.name -ErrorAction SilentlyContinue }
+  else { Stop-Service -Name $Item.name -Force -ErrorAction SilentlyContinue }
+}
+if (!(Test-Path $backupPath)) { throw 'No se encontró el backup del ajuste.' }
+$backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+New-Item -ItemType File -Path $logPath -Force | Out-Null
+Write-Log ${psQuote(`INICIO REVERSIÓN: ${label}`)}
+foreach ($item in @($backup.registry)) { Restore-RegValue $item }
+foreach ($item in @($backup.services)) { Restore-ServiceState $item }
+foreach ($item in @($backup.powerSettings)) {
+  $number = [Convert]::ToInt32([string]$item.value, 16)
+  powercfg.exe /SETACVALUEINDEX SCHEME_CURRENT $item.subgroup $item.setting $number | Out-Null
+}
+if ($backup.powerPlan) { powercfg.exe /SETACTIVE $backup.powerPlan | Out-Null }
+if ($null -ne $backup.hibernate) { powercfg.exe /hibernate $(if ([bool]$backup.hibernate) { 'on' } else { 'off' }) | Out-Null }
+foreach ($item in @($backup.bcd)) {
+  if ($item.exists) { bcdedit.exe /set $item.name $item.value | Out-Null }
+  else { bcdedit.exe /deletevalue $item.name | Out-Null }
+}
+Write-Log 'OK: reversión completada'
+`;
+}
+
+async function revertOptimization(sessionId, key) {
+  if (!/^[a-z0-9-]+$/i.test(String(sessionId || '')) || !Object.hasOwn(optimizationOperations, key)) {
+    return { success: false, error: 'Sesión o ajuste no válido.' };
+  }
+  const sessionDirectory = path.join(optimizationBackupDirectory(), sessionId);
+  const manifestPath = path.join(sessionDirectory, 'manifest.json');
+  let manifest;
+  try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { return { success: false, error: 'No se encontró la sesión de cambios.' }; }
+  const entry = manifest.entries?.find(item => item.key === key);
+  if (!entry || entry.status !== 'ok') return { success: false, error: 'Este ajuste no está aplicado o ya fue revertido.' };
+  if (!entry.reversible) return { success: false, error: 'Este ajuste no admite reversión automática.' };
+  const resolvedSessionDirectory = path.resolve(sessionDirectory);
+  const resolvedBackupPath = path.resolve(String(entry.backupPath || ''));
+  if (!resolvedBackupPath.startsWith(`${resolvedSessionDirectory}${path.sep}`)) return { success: false, error: 'El backup no pertenece a la sesión.' };
+  entry.backupPath = resolvedBackupPath;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logPath = path.join(optimizationLogDirectory(), `reversion-${sessionId}-${key}-${stamp}.txt`);
+  const scriptPath = path.join(app.getPath('temp'), `super-optimizador-revert-${Date.now()}.ps1`);
+  fs.writeFileSync(scriptPath, `\uFEFF${buildRollbackScript(entry.backupPath, logPath, entry.label)}`, 'utf8');
   try {
-    await runElevatedPowerShell(scriptPath);
-    return { success: true, logPath, keys: selectedKeys };
+    await runPowerShellScript(scriptPath, entry.requiresAdmin);
+    entry.status = 'reverted';
+    entry.revertedAt = new Date().toISOString();
+    entry.revertLogPath = logPath;
+    writeOptimizationManifest(manifestPath, manifest);
+    return { success: true, logPath, sessionId, key, label: entry.label };
   } catch (error) {
-    return { success: false, logPath, error: /canceled|cancelado|denied|拒否/i.test(`${error.message} ${error.stderr}`) ? 'La confirmación UAC fue cancelada.' : 'PowerShell no pudo completar los ajustes. Revisa el registro TXT.' };
+    return { success: false, error: /canceled|cancelado|denied|拒否/i.test(`${error.message} ${error.stderr}`) ? 'La confirmación UAC fue cancelada.' : 'No se pudo revertir el ajuste. Revisa el registro TXT.', logPath };
   } finally {
     try { fs.rmSync(scriptPath, { force: true }); } catch { /* no bloquear el resultado */ }
   }
@@ -875,7 +1183,10 @@ ipcMain.handle('system:startup', () => readStartupEntries());
 ipcMain.handle('system:health', () => readHealth());
 ipcMain.handle('system:drivers', () => readDeviceInventory());
 ipcMain.handle('memory:clean', () => cleanMemory());
-ipcMain.handle('optimization:apply', (_event, keys) => applyOptimizations(keys));
+ipcMain.handle('optimization:apply', (_event, payload) => applyOptimizations(payload?.keys, { createRestorePoint: payload?.createRestorePoint !== false }));
+ipcMain.handle('optimization:sessions', () => readOptimizationSessions());
+ipcMain.handle('optimization:revert', (_event, payload) => revertOptimization(payload?.sessionId, payload?.key));
+ipcMain.handle('runtime:config', () => runtimeConfig);
 ipcMain.handle('external:open', (_event, value) => {
   const url = String(value || '');
   if (!/^https:\/\//i.test(url)) throw new Error('URL no permitida');

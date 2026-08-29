@@ -242,7 +242,7 @@ const pages = {
   ping: { title: 'Monitor de ping', render: () => `<div class="page-title-card"><h2>Monitor de ping</h2><p>Mide la latencia y aplica el DNS elegido en el adaptador de red activo, ya sea Ethernet o Wi‑Fi.</p><div class="toolbar"><button class="primary" data-action="measure-ping">Medir ahora</button></div></div><div class="section-head"><h3>DNS públicos</h3><span id="ping-updated">Listo para medir</span></div><div id="dns-results" class="dns-grid">${dnsProfiles.map(dns=>`<div class="dns-card"><h4>${dns.name}</h4><small>${dns.primary} · ${dns.secondary}</small><div class="dns-ping"><strong data-ping-value="${dns.name}">${dns.sample}</strong><span>ms</span></div><div class="dns-bar"><b style="--ping-width:${Math.min(100, Number(dns.sample)*2.1)}%"></b></div><button class="secondary dns-apply-button" data-action="apply-dns" data-dns-name="${dns.name}" data-dns-primary="${dns.primary}" data-dns-secondary="${dns.secondary}">Aplicar en red activa</button></div>`).join('')}</div><div class="safe-note" style="margin-top:16px;text-align:left">${desktopBridge?.isDesktop ? 'La aplicación detectará la conexión activa y solicitará UAC antes de cambiarla.' : 'La aplicación portable aplica el DNS real; esta vista del navegador solo muestra datos de demostración.'}</div>` },
   log: { title: 'Log', render: () => `<div class="page-title-card"><h2>Registro de actividad</h2><p>Historial local de análisis y cambios realizados por Super Optimizador.</p><small id="log-path">Consultando carpeta de registros TXT…</small></div><div class="section-head"><h3>Actividad reciente</h3><button class="secondary" data-action="clear-log">Limpiar</button></div>${state.log.length ? `<div class="list">${state.log.map(entry => `<div class="list-item"><i class="status-dot"></i><div class="grow"><strong>${entry.title}</strong><small>${formatLogTime(entry.at)} · ${entry.detail}</small></div></div>`).join('')}</div>` : '<div class="card"><strong>No hay actividad registrada</strong><small>Las acciones seguras aparecerán aquí.</small></div>'}` },
   settings: { title: 'Ajustes', render: () => `<div class="page-title-card"><h2>Preferencias</h2><p>Configura el comportamiento de la aplicación y sus comprobaciones.</p><div class="setting-row"><div><strong>Iniciar con Windows</strong><small>Guardar la preferencia para futuras versiones del portable</small></div><button class="switch ${state.settings.launchOnStartup ? '' : 'off'}" data-setting="launchOnStartup" aria-label="Iniciar con Windows" aria-pressed="${state.settings.launchOnStartup}"></button></div><div class="setting-row"><div><strong>Crear punto de restauración</strong><small>Antes de aplicar ajustes del sistema</small></div><button class="switch ${state.settings.restorePoint ? '' : 'off'}" data-setting="restorePoint" aria-label="Crear punto de restauración" aria-pressed="${state.settings.restorePoint}"></button></div><div class="setting-row"><div><strong>Sonidos de interfaz</strong><small>Reproducir sonidos al navegar y activar opciones</small></div><button class="switch ${state.settings.sound ? '' : 'off'}" data-setting="sound" aria-label="Sonidos de interfaz" aria-pressed="${state.settings.sound}"></button></div></div>` },
-  revert: { title: 'Revertir', render: () => `<div class="page-title-card"><h2>Revertir cambios</h2><p>Consulta los ajustes aplicados y vuelve a un estado anterior mediante copias de seguridad y puntos de restauración.</p><div class="toolbar"><button class="primary" data-action="revert">Abrir asistente de reversión</button></div></div><div class="section-head"><h3>Última sesión</h3><span>${state.log.length ? `${state.log.length} acciones registradas` : 'Sin cambios aplicados'}</span></div><div class="card"><div class="card-header"><span>Estado de reversión</span><span class="tag">Disponible</span></div><strong>Sin cambios pendientes</strong><small>Las selecciones del catálogo se guardan localmente y se pueden revisar antes de aplicarlas.</small></div>` }
+  revert: { title: 'Revertir', render: () => `<div class="page-title-card"><h2>Revertir cambios</h2><p>Revierte individualmente los ajustes que tengan una copia de seguridad disponible.</p></div><div class="section-head"><h3>Sesiones registradas</h3><span id="revert-summary">Consultando backups…</span></div><div id="revert-results" class="list"><div class="card"><small>Consultando backups…</small></div></div>` }
 };
 
 function showToast(message) {
@@ -322,6 +322,35 @@ function refreshLogDirectory() {
   }).catch(() => {});
 }
 
+async function refreshRevertSessions() {
+  const summary = document.querySelector('#revert-summary');
+  const results = document.querySelector('#revert-results');
+  if (!summary || !results) return;
+  if (!desktopBridge?.getOptimizationSessions) {
+    summary.textContent = 'Solo disponible en el portable';
+    results.innerHTML = '<div class="card"><strong>Reversión no disponible</strong><small>Abre la aplicación portable para consultar los backups.</small></div>';
+    return;
+  }
+  try {
+    const sessions = await desktopBridge.getOptimizationSessions();
+    const entries = (Array.isArray(sessions) ? sessions : []).flatMap(session => (session.entries || []).map(entry => ({ session, entry })));
+    summary.textContent = `${entries.filter(item => item.entry.status === 'ok').length} ajustes aplicados · ${sessions.length} sesiones`;
+    results.innerHTML = entries.length
+      ? entries.map(({ session, entry }) => {
+        const status = entry.status === 'ok' ? 'Aplicado' : entry.status === 'reverted' ? 'Revertido' : entry.status === 'error' ? 'Error' : 'No aplicado';
+        const canRevert = entry.status === 'ok' && entry.reversible;
+        const detail = `${formatLogTime(session.createdAt)} · ${entry.reversible ? 'Backup disponible' : 'Sin reversión automática'}${entry.error ? ` · ${entry.error}` : ''}`;
+        const dotClass = entry.status === 'error' ? 'warn' : entry.status === 'reverted' ? 'off' : '';
+        const buttonText = entry.status === 'reverted' ? 'Revertido' : canRevert ? 'Revertir' : 'No disponible';
+        return `<div class="list-item"><i class="status-dot ${dotClass}"></i><div class="grow"><strong>${escapeHtml(entry.label)}</strong><small>${escapeHtml(detail)}</small></div><span class="tag">${status}</span><button class="secondary" data-action="revert-optimization" data-session-id="${escapeHtml(session.sessionId)}" data-optimization-key="${escapeHtml(entry.key)}" ${canRevert ? '' : 'disabled'}>${buttonText}</button></div>`;
+      }).join('')
+      : '<div class="card"><strong>No hay sesiones</strong><small>Los ajustes aplicados aparecerán aquí con su backup y estado.</small></div>';
+  } catch {
+    summary.textContent = 'No disponible';
+    results.innerHTML = '<div class="card"><strong>No se pudieron leer las sesiones</strong><small>Revisa la carpeta de backups en Documentos.</small></div>';
+  }
+}
+
 function isOptimizationSelected(key) {
   return state.optimizations[key] === true;
 }
@@ -369,6 +398,7 @@ function renderPage(key) {
   if (key === 'drivers') refreshDrivers();
   if (key === 'games') refreshGames();
   if (key === 'boost') refreshMemoryCleaner();
+  if (key === 'revert') refreshRevertSessions();
 }
 
 async function refreshSystemMetrics() {
@@ -602,14 +632,20 @@ document.addEventListener('click', async event => {
       showToast('Selecciona al menos un ajuste.');
       return;
     }
-    const confirmed = await showActionConfirmation({
-      titleText: 'Aplicar ajustes de Windows',
-      message: `Se aplicarán ${selected.length} ajustes seleccionados.`,
-      detail: 'Algunos cambios modifican Registro, servicios o componentes opcionales. Después de confirmar aparecerá el UAC real de Windows y se generará un TXT.',
-      confirmText: 'Continuar'
-    });
-    if (!confirmed) {
-      showToast('Aplicación cancelada.');
+    const confirmedKeys = [];
+    for (const input of selected) {
+      const label = input.closest('.optimization-option')?.querySelector('strong')?.textContent || input.dataset.optimizationKey;
+      const confirmed = await showActionConfirmation({
+        titleText: `Confirmar: ${label}`,
+        message: 'Se aplicará este ajuste de Windows.',
+        detail: 'Se guardará un backup antes del cambio. Si necesita permisos, aparecerá la confirmación de administrador de Windows. Los ajustes irreversibles quedarán indicados en el registro.',
+        confirmText: 'Aplicar tweak'
+      });
+      if (confirmed) confirmedKeys.push(input.dataset.optimizationKey);
+      else addLog(`Tweak cancelado: ${label}`, 'No se aplicó este ajuste');
+    }
+    if (!confirmedKeys.length) {
+      showToast('No se aplicó ningún ajuste.');
       return;
     }
     const applyButton = button;
@@ -617,19 +653,48 @@ document.addEventListener('click', async event => {
     applyButton.textContent = 'Aplicando…';
     try {
       const result = desktopBridge?.applyOptimizations
-        ? await desktopBridge.applyOptimizations(selected.map(input => input.dataset.optimizationKey))
+        ? await desktopBridge.applyOptimizations({ keys: confirmedKeys, createRestorePoint: state.settings.restorePoint !== false })
         : { success: false, error: 'La ejecución real está disponible en el EXE portable.' };
       if (result.success) {
-        addLog('Ajustes aplicados', `${selected.length} opciones · Registro TXT: ${result.logPath || 'guardado'}`);
+        addLog('Ajustes aplicados', `${confirmedKeys.length} opciones · Sesión: ${result.sessionId || 'guardada'} · Registro TXT: ${result.logPath || 'guardado'}`);
         document.querySelector('.optimization-modal')?.remove();
         showToast(`Ajustes aplicados. Registro TXT guardado en ${result.logPath || 'la carpeta de documentos'}.`);
       } else {
+        if (result.partial) addLog('Aplicación parcial de ajustes', `${result.sessionId || 'Sesión guardada'} · Registro TXT: ${result.logPath || 'guardado'}`);
         showToast(result.error || 'No se pudieron aplicar los ajustes.');
       }
     } catch {
       showToast('No se pudieron aplicar los ajustes.');
     } finally {
       if (applyButton.isConnected) { applyButton.disabled = false; applyButton.textContent = 'Aplicar selección'; }
+    }
+    return;
+  }
+  if (action === 'revert-optimization') {
+    if (!desktopBridge?.revertOptimization) {
+      showToast('La reversión está disponible en el EXE portable.');
+      return;
+    }
+    const confirmed = await showActionConfirmation({
+      titleText: 'Revertir ajuste',
+      message: 'Se restaurará la copia guardada antes de este tweak.',
+      detail: 'La operación puede solicitar permisos de administrador si el cambio original los necesitaba.',
+      confirmText: 'Revertir'
+    });
+    if (!confirmed) return;
+    button.disabled = true;
+    button.textContent = 'Revirtiendo…';
+    try {
+      const result = await desktopBridge.revertOptimization({ sessionId: button.dataset.sessionId, key: button.dataset.optimizationKey });
+      if (result.success) {
+        addLog(`Tweak revertido: ${result.label || button.dataset.optimizationKey}`, `Registro TXT: ${result.logPath || 'guardado'}`);
+        showToast(`Ajuste revertido. Registro TXT guardado en ${result.logPath || 'la carpeta de documentos'}.`);
+      } else showToast(result.error || 'No se pudo revertir el ajuste.');
+      await refreshRevertSessions();
+    } catch {
+      showToast('No se pudo revertir el ajuste.');
+      button.disabled = false;
+      button.textContent = 'Revertir';
     }
     return;
   }
